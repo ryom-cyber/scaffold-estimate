@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const { imageBase64, mimeType } = await req.json() as { imageBase64: string; mimeType: string };
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-preview-05-20' });
 
     const prompt = `あなたは建築図面（平面図・立面図）を解析する専門家です。
 この建築図面から足場計画に必要な情報を抽出してください。
