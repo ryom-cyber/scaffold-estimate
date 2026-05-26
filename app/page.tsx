@@ -10,7 +10,7 @@ import { sidestoVertices, buildScaffoldLayout } from '@/lib/geometry';
 import { getMaster, saveProject, listProjects } from '@/lib/storage';
 import { CalcResult, ScaffoldInputs, BuildingPolygon, ScaffoldLayout } from '@/lib/types';
 
-// PDFから取れない設定（常に表示）
+const BUILDING_TYPES = ['集合住宅', '学校', '戸建住宅', 'その他'];
 const SCAFFOLD_TYPES = ['くさび緊結式', '枠組み足場', '単管足場'];
 
 interface ExtractedData {
@@ -22,22 +22,32 @@ interface ExtractedData {
   _model?: string;
 }
 
+// PDF解析でどのフィールドが自動入力されたかを管理
+interface PdfFilled {
+  floors: boolean;
+  floorHeight: boolean;
+  buildingType: boolean;
+  sides: boolean;
+}
+
 export default function Home() {
-  // PDF解析結果
-  const [extracted, setExtracted] = useState<ExtractedData | null>(null);
+  // フォーム値（常に表示・常に編集可）
+  const [projectName, setProjectName] = useState('');
+  const [buildingType, setBuildingType] = useState('集合住宅');
+  const [scaffoldType, setScaffoldType] = useState('くさび緊結式');
+  const [floors, setFloors] = useState(3);
+  const [floorHeight, setFloorHeight] = useState(2.8);
+  const [clearance, setClearance] = useState(0.3);
+  const [meshOpt, setMeshOpt] = useState('あり');
+  const [sides, setSides] = useState<number[]>([10, 8, 10, 8]);
+
+  // PDF
   const [pdfStatus, setPdfStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [pdfError, setPdfError] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
   const [dragOver, setDragOver] = useState(false);
-
-  // 補正用（足りない値だけ入力させる）
-  const [sides, setSides] = useState<number[]>([10, 8, 10, 8]);
-  const [projectName, setProjectName] = useState('');
-
-  // 常に設定が必要な項目
-  const [scaffoldType, setScaffoldType] = useState('くさび緊結式');
-  const [clearance, setClearance] = useState(0.3);
-  const [meshOpt, setMeshOpt] = useState('あり');
+  const [pdfNotes, setPdfNotes] = useState('');
+  const [pdfFilled, setPdfFilled] = useState<PdfFilled>({ floors: false, floorHeight: false, buildingType: false, sides: false });
 
   // 結果
   const [result, setResult] = useState<CalcResult | null>(null);
@@ -47,13 +57,11 @@ export default function Home() {
 
   useEffect(() => { setProjects(listProjects()); }, []);
 
-  // PDFをcanvasで描画 → base64 → Gemini解析
+  // --- PDF処理 ---
   const processPdf = async (file: File) => {
     setPdfStatus('loading');
     setPdfError('');
-    setExtracted(null);
-    setResult(null);
-    setLayout(null);
+    setPdfFilled({ floors: false, floorHeight: false, buildingType: false, sides: false });
 
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -61,10 +69,9 @@ export default function Home() {
       pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-      // 全ページを解析して最初に平面図っぽいページを使う（最大3ページ試行）
-      let resultData: ExtractedData | null = null;
       const maxPages = Math.min(pdf.numPages, 5);
+      let extracted: ExtractedData | null = null;
+      let bestPreview = '';
 
       for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
@@ -84,32 +91,34 @@ export default function Home() {
           body: JSON.stringify({ imageBase64: base64, mimeType: 'image/png', pageNum }),
         });
         const json = await res.json() as ExtractedData & { error?: string };
-
         if (!res.ok) throw new Error(json.error || '解析失敗');
 
-        // sidesが取れたページを優先
+        if (!bestPreview) bestPreview = dataUrl;
+
+        // sidesが3辺以上取れたページを優先
         if (json.sides && json.sides.length >= 3) {
-          setPreviewUrl(dataUrl);
-          resultData = json;
+          extracted = json;
+          bestPreview = dataUrl;
           break;
         }
-        // 最後のページならそれで使う
-        if (pageNum === maxPages) {
-          setPreviewUrl(dataUrl);
-          resultData = json;
+        if (pageNum === maxPages && !extracted) {
+          extracted = json;
         }
       }
 
-      if (!resultData) throw new Error('図面情報を抽出できませんでした');
+      if (!extracted) throw new Error('図面情報を抽出できませんでした');
 
-      setExtracted(resultData);
-      if (resultData.sides?.length) setSides(resultData.sides);
+      setPreviewUrl(bestPreview);
 
-      // sidesが揃っていれば即計算
-      const readySides = resultData.sides?.length ? resultData.sides : sides;
-      if (readySides.length >= 3 && readySides.every(s => s > 0)) {
-        autoCalculate(resultData, readySides);
-      }
+      // フォームに反映（取れた項目だけ）＆バッジ管理
+      const filled: PdfFilled = { floors: false, floorHeight: false, buildingType: false, sides: false };
+      if (extracted.floors && extracted.floors > 0) { setFloors(extracted.floors); filled.floors = true; }
+      if (extracted.floorHeight && extracted.floorHeight > 0) { setFloorHeight(extracted.floorHeight); filled.floorHeight = true; }
+      if (extracted.buildingType && BUILDING_TYPES.includes(extracted.buildingType)) { setBuildingType(extracted.buildingType); filled.buildingType = true; }
+      if (extracted.sides && extracted.sides.length >= 3) { setSides(extracted.sides); filled.sides = true; }
+      if (extracted.notes) setPdfNotes(extracted.notes);
+
+      setPdfFilled(filled);
       setPdfStatus('idle');
     } catch (e: unknown) {
       setPdfError(e instanceof Error ? e.message : String(e));
@@ -117,46 +126,43 @@ export default function Home() {
     }
   };
 
-  const autoCalculate = (data: ExtractedData, sidesArr: number[]) => {
+  // --- 計算 ---
+  const handleCalculate = () => {
+    if (sides.length < 3 || sides.some(s => s <= 0)) {
+      alert('建物外周の辺の長さを入力してください（3辺以上）');
+      return;
+    }
     const inputs: ScaffoldInputs = {
       projectName: projectName || '無題物件',
-      buildingType: data.buildingType || '集合住宅',
-      scaffoldType,
-      floors: data.floors || 3,
-      floorHeight: data.floorHeight || 2.8,
-      clearance, meshOpt, sides: sidesArr,
+      buildingType, scaffoldType,
+      floors, floorHeight, clearance, meshOpt,
+      sides,
     };
     const master = getMaster();
-    setResult(calculate(inputs, master));
-    const vertices = sidestoVertices(sidesArr);
-    const bp: BuildingPolygon = {
-      vertices,
-      floors: inputs.floors, floorHeight: inputs.floorHeight,
-      clearance, meshOpt, projectName: inputs.projectName,
-      buildingType: inputs.buildingType,
-    };
+    const calcResult = calculate(inputs, master);
+    setResult(calcResult);
+    const vertices = sidestoVertices(sides);
+    const bp: BuildingPolygon = { vertices, floors, floorHeight, clearance, meshOpt, projectName: inputs.projectName, buildingType };
     setLayout(buildScaffoldLayout(bp));
-  };
-
-  const handleCalculate = () => {
-    if (sides.some(s => s <= 0)) { alert('辺の長さを入力してください'); return; }
-    autoCalculate(extracted || {}, sides);
   };
 
   const handleSave = () => {
     if (!result) return;
     saveProject(result);
-    alert('保存しました！');
     setProjects(listProjects());
+    alert('保存しました！');
   };
 
   const handleLoad = (p: CalcResult) => {
-    setExtracted({ floors: p.inputs.floors, floorHeight: p.inputs.floorHeight, buildingType: p.inputs.buildingType });
-    setSides([...p.inputs.sides]);
+    setProjectName(p.projectName);
+    setBuildingType(p.inputs.buildingType);
     setScaffoldType(p.inputs.scaffoldType);
+    setFloors(p.inputs.floors);
+    setFloorHeight(p.inputs.floorHeight);
     setClearance(p.inputs.clearance);
     setMeshOpt(p.inputs.meshOpt);
-    setProjectName(p.projectName);
+    setSides([...p.inputs.sides]);
+    setPdfFilled({ floors: false, floorHeight: false, buildingType: false, sides: false });
     const master = getMaster();
     setResult(calculate(p.inputs, master));
     const vertices = sidestoVertices(p.inputs.sides);
@@ -196,39 +202,58 @@ export default function Home() {
     XLSX.writeFile(wb, `足場見積_${result.projectName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const needsSides = !extracted?.sides?.length;
-  const hasResult = !!result;
+  const anyPdfFilled = Object.values(pdfFilled).some(Boolean);
 
   return (
     <>
       <style>{`
-        .layout-grid { display: grid; grid-template-columns: 400px 1fr; gap: 24px; }
-        @media (max-width: 900px) { .layout-grid { grid-template-columns: 1fr; } }
+        .layout-grid { display: grid; grid-template-columns: 420px 1fr; gap: 24px; }
+        @media (max-width: 960px) { .layout-grid { grid-template-columns: 1fr; } }
+        .pdf-badge { display:inline-flex; align-items:center; gap:3px; background:#E8F8F5; border:1px solid #A9DFBF; border-radius:4px; padding:1px 6px; font-size:10px; color:#1E8449; font-weight:700; margin-left:6px; }
+        .form-row { display:grid; gap:8px; margin-bottom:10px; }
+        .form-row-2 { grid-template-columns:1fr 1fr; }
+        .form-row-3 { grid-template-columns:1fr 1fr 1fr; }
+        .field-label { font-size:12px; font-weight:600; color:#5D6D7E; display:block; margin-bottom:4px; }
       `}</style>
 
       <div className="layout-grid">
 
-        {/* 左：PDFドロップ + 最小設定 */}
+        {/* ===== 左カラム ===== */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* PDFドロップゾーン */}
+          {/* PDF読み込み（任意） */}
           <div className="card">
-            <h2 className="card-title">📄 図面を読み込む</h2>
+            <h2 className="card-title">
+              📄 図面を読み込む
+              <span style={{ fontSize: 11, fontWeight: 400, color: '#95A5A6', marginLeft: 8 }}>（任意 — 手入力のみでも計算できます）</span>
+            </h2>
 
             <div
-              onClick={() => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf'; inp.onchange = e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) processPdf(f); }; inp.click(); }}
+              onClick={() => {
+                const inp = document.createElement('input');
+                inp.type = 'file'; inp.accept = 'application/pdf';
+                inp.onchange = e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) processPdf(f); };
+                inp.click();
+              }}
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
-              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f?.type === 'application/pdf') processPdf(f); else alert('PDFを選択してください'); }}
+              onDrop={e => {
+                e.preventDefault(); setDragOver(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f?.type === 'application/pdf') processPdf(f); else alert('PDFを選択してください');
+              }}
               style={{
                 border: `2px dashed ${dragOver ? '#2E86C1' : pdfStatus === 'error' ? '#E74C3C' : '#B2BEC3'}`,
-                borderRadius: 8, padding: '20px 16px', textAlign: 'center', cursor: 'pointer',
+                borderRadius: 8, padding: '14px 16px', textAlign: 'center', cursor: 'pointer',
                 background: dragOver ? '#E6F1FB' : '#F8FAFB', transition: 'all 0.2s',
               }}
             >
               {pdfStatus === 'loading'
-                ? <><div style={{ fontSize: 24, marginBottom: 6 }}>🔍</div><div style={{ fontSize: 13, color: '#5D6D7E' }}>Geminiで図面を解析中...</div></>
-                : <><div style={{ fontSize: 24, marginBottom: 6 }}>📐</div><div style={{ fontSize: 13, color: '#5D6D7E' }}>平面図PDFをドロップ</div><div style={{ fontSize: 11, color: '#95A5A6', marginTop: 4 }}>または クリックして選択</div></>
+                ? <><div style={{ fontSize: 20, marginBottom: 4 }}>🔍</div><div style={{ fontSize: 12, color: '#5D6D7E' }}>Geminiで図面を解析中...</div></>
+                : <><div style={{ fontSize: 20, marginBottom: 4 }}>📐</div>
+                    <div style={{ fontSize: 12, color: '#5D6D7E' }}>平面図PDFをドロップ</div>
+                    <div style={{ fontSize: 11, color: '#95A5A6', marginTop: 2 }}>または クリックして選択</div>
+                  </>
               }
             </div>
 
@@ -236,79 +261,113 @@ export default function Home() {
               <div style={{ background: '#FADBD8', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#922B21', marginTop: 8 }}>⚠️ {pdfError}</div>
             )}
 
-            {/* 解析結果バッジ */}
-            {extracted && (
-              <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {extracted.floors && <span style={badge('#1B4F8A')}>🏢 {extracted.floors}階</span>}
-                {extracted.floorHeight && <span style={badge('#27AE60')}>📏 階高{extracted.floorHeight}m</span>}
-                {extracted.buildingType && <span style={badge('#8E44AD')}>{extracted.buildingType}</span>}
-                {extracted.sides?.length
-                  ? <span style={badge('#E67E22')}>外周{extracted.sides.length}辺 ✅</span>
-                  : <span style={badge('#E74C3C')}>外周未取得 ⚠️</span>
-                }
+            {anyPdfFilled && (
+              <div style={{ marginTop: 8, background: '#E8F8F5', border: '1px solid #A9DFBF', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: '#1E8449' }}>
+                ✅ 下のフォームに自動入力しました。内容を確認・修正して「計算する」をクリックしてください。
               </div>
             )}
 
-            {extracted?.notes && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#7F8C8D', background: '#F8FAFB', borderRadius: 6, padding: '6px 10px' }}>
-                💬 {extracted.notes}
+            {pdfNotes && (
+              <div style={{ marginTop: 6, fontSize: 11, color: '#7F8C8D', background: '#F8FAFB', borderRadius: 6, padding: '6px 10px' }}>
+                💬 {pdfNotes}
               </div>
             )}
 
-            {/* プレビュー（小さく） */}
             {previewUrl && (
               <img src={previewUrl} alt="図面" style={{ width: '100%', borderRadius: 4, marginTop: 8, border: '1px solid #E5E8E8', opacity: 0.85 }} />
             )}
           </div>
 
-          {/* 辺の入力（取れなかった場合のみ） */}
-          {needsSides && extracted && (
-            <div className="card">
-              <h2 className="card-title" style={{ fontSize: 15 }}>⚠️ 外周寸法を入力</h2>
-              <p style={{ fontSize: 12, color: '#7F8C8D', marginBottom: 12 }}>平面図ページから辺の長さを読み取れませんでした。手入力してください。</p>
-              <SidesList sides={sides} onChange={setSides} />
-            </div>
-          )}
-
-          {/* 設定（常に表示） */}
+          {/* ===== 入力フォーム ===== */}
           <div className="card">
-            <h2 className="card-title" style={{ fontSize: 15 }}>⚙️ 設定</h2>
+            <h2 className="card-title">📝 物件情報</h2>
 
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#5D6D7E', display: 'block', marginBottom: 4 }}>物件名</label>
-              <input className="form-input" type="text" value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="〇〇マンション外壁改修" style={{ fontSize: 13 }} />
+            {/* 物件名 */}
+            <div style={{ marginBottom: 10 }}>
+              <label className="field-label">物件名</label>
+              <input className="form-input" type="text" value={projectName}
+                onChange={e => setProjectName(e.target.value)}
+                placeholder="〇〇マンション外壁改修" style={{ fontSize: 13 }} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            {/* 建物用途 ／ 足場種別 */}
+            <div className="form-row form-row-2">
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#5D6D7E', display: 'block', marginBottom: 4 }}>足場種別</label>
+                <label className="field-label">
+                  建物用途
+                  {pdfFilled.buildingType && <span className="pdf-badge">PDF</span>}
+                </label>
+                <select className="form-input" value={buildingType} onChange={e => setBuildingType(e.target.value)} style={{ fontSize: 13 }}>
+                  {BUILDING_TYPES.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">足場種別</label>
                 <select className="form-input" value={scaffoldType} onChange={e => setScaffoldType(e.target.value)} style={{ fontSize: 13 }}>
                   {SCAFFOLD_TYPES.map(t => <option key={t}>{t}</option>)}
                 </select>
               </div>
+            </div>
+
+            {/* 階数 ／ 標準階高 ／ 離隔距離 */}
+            <div className="form-row form-row-3">
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#5D6D7E', display: 'block', marginBottom: 4 }}>養生シート</label>
-                <select className="form-input" value={meshOpt} onChange={e => setMeshOpt(e.target.value)} style={{ fontSize: 13 }}>
-                  <option>あり</option><option>なし</option>
-                </select>
+                <label className="field-label">
+                  階数
+                  {pdfFilled.floors && <span className="pdf-badge">PDF</span>}
+                </label>
+                <input className="form-input" type="number" min={1} max={20} value={floors}
+                  onChange={e => setFloors(parseInt(e.target.value) || 1)} style={{ fontSize: 13 }} />
+              </div>
+              <div>
+                <label className="field-label">
+                  標準階高 (m)
+                  {pdfFilled.floorHeight && <span className="pdf-badge">PDF</span>}
+                </label>
+                <input className="form-input" type="number" min={2.0} max={5.0} step={0.1} value={floorHeight}
+                  onChange={e => setFloorHeight(parseFloat(e.target.value) || 2.8)} style={{ fontSize: 13 }} />
+              </div>
+              <div>
+                <label className="field-label">離隔距離 (m)</label>
+                <input className="form-input" type="number" min={0.1} max={1.0} step={0.05} value={clearance}
+                  onChange={e => setClearance(parseFloat(e.target.value) || 0.3)} style={{ fontSize: 13 }} />
               </div>
             </div>
 
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#5D6D7E', display: 'block', marginBottom: 4 }}>離隔距離 (m)</label>
-              <input className="form-input" type="number" min={0.1} max={1.0} step={0.05} value={clearance}
-                onChange={e => setClearance(parseFloat(e.target.value) || 0.3)} style={{ fontSize: 13 }} />
+            {/* 養生シート */}
+            <div style={{ marginBottom: 14 }}>
+              <label className="field-label">養生シート</label>
+              <div style={{ display: 'flex', gap: 12 }}>
+                {['あり', 'なし'].map(v => (
+                  <label key={v} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="radio" name="mesh" value={v} checked={meshOpt === v} onChange={() => setMeshOpt(v)} />
+                    {v}
+                  </label>
+                ))}
+              </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleCalculate}>
-                ▶ {hasResult ? '再計算' : '計算する'}
+            {/* 建物外周（辺リスト） */}
+            <div>
+              <label className="field-label">
+                建物外周（辺ごとの長さ）
+                {pdfFilled.sides && <span className="pdf-badge">PDF</span>}
+              </label>
+              <SidesList sides={sides} onChange={setSides} />
+            </div>
+
+            {/* 計算ボタン */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button className="btn btn-primary" style={{ flex: 1, fontSize: 15, padding: '10px 0' }} onClick={handleCalculate}>
+                ▶ 計算する
               </button>
-              {hasResult && <button className="btn btn-secondary" onClick={handleSave}>💾</button>}
+              {result && (
+                <button className="btn btn-secondary" onClick={handleSave} title="保存">💾 保存</button>
+              )}
             </div>
           </div>
 
-          {/* 保存済み */}
+          {/* 保存済み案件 */}
           {projects.length > 0 && (
             <div className="card">
               <h2 className="card-title" style={{ fontSize: 15 }}>💾 保存済み案件</h2>
@@ -317,7 +376,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* 右：結果 */}
+        {/* ===== 右カラム ===== */}
         <div className="card">
           <div className="tabs">
             <button className={`tab-btn ${tab === 'result' ? 'active' : ''}`} onClick={() => setTab('result')}>📊 数量・拾い出し</button>
@@ -327,16 +386,17 @@ export default function Home() {
           {tab === 'result' && (
             result
               ? <ResultTable result={result} onExport={handleExport} layout={layout} />
-              : <div style={{ textAlign: 'center', padding: '60px 20px', color: '#95A5A6' }}>
-                  <div style={{ fontSize: 48, marginBottom: 12 }}>📐</div>
-                  <div style={{ fontSize: 14 }}>平面図PDFをドロップすると自動で計算します</div>
+              : <div style={{ textAlign: 'center', padding: '80px 20px', color: '#95A5A6' }}>
+                  <div style={{ fontSize: 52, marginBottom: 12 }}>📊</div>
+                  <div style={{ fontSize: 15, marginBottom: 6 }}>左のフォームに入力して「計算する」を押してください</div>
+                  <div style={{ fontSize: 13 }}>PDFをドロップすると自動で入力されます</div>
                 </div>
           )}
 
           {tab === 'plan' && (
             layout
               ? <ScaffoldPlan layout={layout} />
-              : <div style={{ textAlign: 'center', padding: '60px 20px', color: '#95A5A6', fontSize: 14 }}>
+              : <div style={{ textAlign: 'center', padding: '80px 20px', color: '#95A5A6', fontSize: 14 }}>
                   計算後に仮設計画図が表示されます
                 </div>
           )}
@@ -345,8 +405,3 @@ export default function Home() {
     </>
   );
 }
-
-const badge = (color: string): React.CSSProperties => ({
-  display: 'inline-block', padding: '3px 8px', background: color,
-  color: 'white', fontSize: 11, borderRadius: 4, fontWeight: 600,
-});

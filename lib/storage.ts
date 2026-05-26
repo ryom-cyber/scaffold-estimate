@@ -40,5 +40,5 @@ export function listProjects(): CalcResult[] {
   }
   return results
     .sort((a, b) => new Date(b.savedAt!).getTime() - new Date(a.savedAt!).getTime())
-    .slice(0, 5);
+    .slice(0, 100);
 }

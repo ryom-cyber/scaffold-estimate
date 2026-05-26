@@ -1,6 +1,7 @@
 import { Vec2, BuildingPolygon, ScaffoldLayout, SpanSegment, WallTie } from './types';
 
-const SPAN = 1.8; // くさび緊結式基本スパン（m）
+/** 規格スパン（m）：1.2 / 1.5 / 1.8 */
+const STANDARD_SPANS = [1.2, 1.5, 1.8];
 
 /** 辺の長さリスト → 頂点リスト（直角交互進行） */
 export function sidestoVertices(sides: number[]): Vec2[] {
@@ -62,11 +63,31 @@ export function offsetPolygon(verts: Vec2[], d: number): Vec2[] {
   return result;
 }
 
+/**
+ * 辺の長さに対して最適なスパン数を返す（1.2 / 1.5 / 1.8m のベストフィット）
+ * → 各スパン候補で等分したときの実スパン長が最も規格値に近い組み合わせを選択
+ */
+function bestFitSpanCount(edgeLength: number): number {
+  let bestN = Math.max(1, Math.round(edgeLength / 1.8));
+  let bestPenalty = Infinity;
+
+  for (const s of STANDARD_SPANS) {
+    for (const n of [Math.floor(edgeLength / s), Math.ceil(edgeLength / s)]) {
+      if (n < 1) continue;
+      const actual = edgeLength / n;
+      if (actual < 0.8 || actual > 2.1) continue; // 実用外は除外
+      const penalty = Math.min(...STANDARD_SPANS.map(std => Math.abs(actual - std)));
+      if (penalty < bestPenalty) { bestPenalty = penalty; bestN = n; }
+    }
+  }
+  return bestN;
+}
+
 /** 辺のスパン割り点列を返す */
 function divideEdge(from: Vec2, to: Vec2, edgeIndex: number): { segments: SpanSegment[]; points: Vec2[] } {
   const d = sub(to, from);
   const l = len(d);
-  const n = Math.max(1, Math.round(l / SPAN));
+  const n = bestFitSpanCount(l);
   const segments: SpanSegment[] = [];
   const points: Vec2[] = [];
 
@@ -103,7 +124,7 @@ export function buildScaffoldLayout(bp: BuildingPolygon): ScaffoldLayout {
 
   // 高さ方向
   const totalHeight = floors * floorHeight + 1.5;
-  const vertSegs = Math.ceil(totalHeight / SPAN);
+  const vertSegs = Math.ceil(totalHeight / 1.8);
 
   // 壁つなぎ（水平：スパン2本おき、垂直：2段おき）
   const wallTies: WallTie[] = [];
