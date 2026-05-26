@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    return NextResponse.json({ error: 'GEMINI_API_KEY が設定されていません。.env.local を確認してください。' }, { status: 500 });
+    return NextResponse.json({ error: 'GEMINI_API_KEY が設定されていません。' }, { status: 500 });
   }
 
   try {
     const { imageBase64, mimeType } = await req.json() as { imageBase64: string; mimeType: string };
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-preview-05-20' });
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt = `あなたは建築図面（平面図・立面図）を解析する専門家です。
 この建築図面から足場計画に必要な情報を抽出してください。
@@ -32,18 +31,20 @@ export async function POST(req: NextRequest) {
 - 記載がない場合は図面のスケールから推定する
 - JSON以外のテキストは一切含めないこと`;
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: mimeType as 'image/png' | 'image/jpeg' | 'application/pdf',
-          data: imageBase64,
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: mimeType as string, data: imageBase64 } },
+          ],
         },
-      },
-    ]);
+      ],
+    });
 
-    const text = result.response.text().trim();
-    // JSON部分だけ抽出（```jsonブロックなどを除去）
+    const text = (result.text ?? '').trim();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return NextResponse.json({ error: '図面から情報を抽出できませんでした。' }, { status: 422 });
