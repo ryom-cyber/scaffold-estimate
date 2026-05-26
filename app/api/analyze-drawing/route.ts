@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 
 // 試行するモデルの優先順位
-const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
+const MODELS = ['gemini-3-flash-preview', 'gemini-3.1-flash-lite', 'gemini-1.5-flash'];
 
 const PROMPT = `あなたは建築図面（平面図・立面図）を解析する専門家です。
 この建築図面から足場計画に必要な情報を抽出してください。
