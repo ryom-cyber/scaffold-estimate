@@ -1,26 +1,121 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --blue-dark: #1B4F8A;
+  --blue-mid:  #2E86C1;
+  --orange:    #E67E22;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, "Hiragino Kaku Gothic ProN", "メイリオ", sans-serif;
+  background: #F5F7FA;
+  color: #1C2833;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.card-title {
+  font-size: 18px;
+  color: var(--blue-dark);
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #E6F1FB;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #D5DBDB;
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--blue-mid);
+  box-shadow: 0 0 0 3px rgba(46, 134, 193, 0.15);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.btn-primary   { background: var(--blue-dark); color: white; }
+.btn-primary:hover { background: #154070; }
+
+.btn-secondary { background: white; color: var(--blue-dark); border: 1px solid var(--blue-dark); }
+.btn-secondary:hover { background: #E6F1FB; }
+
+.btn-danger    { background: transparent; color: #C0392B; padding: 6px 10px; font-size: 18px; }
+.btn-danger:hover { background: #FADBD8; border-radius: 4px; }
+
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+
+.summary-box {
+  background: #E6F1FB;
+  border-left: 4px solid var(--blue-mid);
+  padding: 14px 16px;
+  border-radius: 6px;
+  margin-bottom: 18px;
+}
+
+.est-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.est-table thead { background: var(--blue-dark); color: white; }
+.est-table th, .est-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #E5E8E8; }
+.est-table th { font-weight: 600; font-size: 12px; }
+.est-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.est-table tbody tr:hover { background: #F8FAFB; }
+.est-table tbody tr.subtotal { background: #F2F4F6; font-weight: 600; }
+
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #E5E8E8; }
+.tab-btn {
+  padding: 10px 18px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: #7F8C8D;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+.tab-btn.active { color: var(--blue-dark); border-bottom-color: var(--blue-dark); }
+
+.saved-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #F8FAFB;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
 }
