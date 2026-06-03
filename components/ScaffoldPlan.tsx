@@ -51,11 +51,57 @@ export default function ScaffoldPlan({ layout }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  // 仮設計画図PDFダウンロード（ブラウザ印刷→PDF保存）
+  const handlePlanPDF = () => {
+    const svgEl = document.querySelector('.scaffold-plan-svg') as SVGElement | null;
+    const svgStr = svgEl ? new XMLSerializer().serializeToString(svgEl) : '';
+    const infoRows: [string, string][] = [
+      ['外周スパン数', `${spanSegments.length}スパン`],
+      ['高さ方向段数', `${verticalSegments}段`],
+      ['足場総高さ', `${totalHeight.toFixed(1)}m`],
+      ['壁つなぎ箇所', `${wallTies.length}箇所`],
+      ['支柱本数（外周）', `${spanPoints.length}本`],
+      ['メッシュシート', `${takeoff.mesh}m²`],
+    ];
+    const infoHtml = infoRows.map(([l, v]) =>
+      `<div class="ic"><div class="il">${l}</div><div class="iv">${v}</div></div>`
+    ).join('');
+    const html = `<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>仮設計画図 - ${projectName || '無題'}</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'Hiragino Sans','Yu Gothic UI','Meiryo',sans-serif; padding:10mm; }
+h1 { font-size:13pt; color:#1B4F8A; border-bottom:2pt solid #1B4F8A; padding-bottom:5pt; margin-bottom:10pt; }
+.svg-wrap { width:100%; border:1pt solid #ddd; border-radius:4pt; overflow:hidden; margin-bottom:10pt; }
+.svg-wrap svg { width:100%; height:auto; display:block; }
+.ig { display:grid; grid-template-columns:repeat(3,1fr); gap:5pt; margin-bottom:10pt; }
+.ic { background:#F2F4F6; border-radius:3pt; padding:5pt 8pt; }
+.il { font-size:8pt; color:#7F8C8D; }
+.iv { font-size:11pt; font-weight:700; color:#1B4F8A; }
+.footer { font-size:8pt; color:#7F8C8D; border-top:0.5pt solid #ddd; padding-top:5pt; display:flex; justify-content:space-between; }
+@media print { body { padding:6mm; } @page { size:A3 landscape; margin:0; } }
+</style></head><body>
+<h1>仮設計画図（平面）— ${projectName || '無題'}　${floors}F　H=${totalHeight.toFixed(1)}m　${verticalSegments}段</h1>
+<div class="svg-wrap">${svgStr}</div>
+<div class="ig">${infoHtml}</div>
+<div class="footer">
+  <span>離隔距離 ${clearance}m　スパン割：1.2/1.5/1.8m ベストフィット</span>
+  <span>作成日: ${new Date().toLocaleDateString('ja-JP')}</span>
+</div>
+<script>window.onload=()=>window.print();</script>
+</body></html>`;
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) { alert('ポップアップをブロックしています。ブラウザの設定で許可してください。'); return; }
+    win.document.write(html);
+    win.document.close();
+  };
+
   return (
     <div>
       {/* 仮設計画図SVG */}
       <div style={{ background: '#FAFBFC', border: '1px solid #E5E8E8', borderRadius: 8, padding: 12, marginBottom: 12, overflowX: 'auto' }}>
-        <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ maxWidth: '100%', height: 'auto', display: 'block' }}>
+        <svg className="scaffold-plan-svg" viewBox={`0 0 ${svgW} ${svgH}`} style={{ maxWidth: '100%', height: 'auto', display: 'block' }}>
           <defs>
             <marker id="arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
               <path d="M0,0 L6,3 L0,6 Z" fill="#5D6D7E" />
@@ -139,15 +185,19 @@ export default function ScaffoldPlan({ layout }: Props) {
         ))}
       </div>
 
-      {/* DXF出力ボタン */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-primary" onClick={handleDXF}>
+      {/* 出力ボタン */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" onClick={handlePlanPDF}>
+          📄 仮設計画図をPDFで保存
+        </button>
+        <button className="btn btn-secondary" onClick={handleDXF}>
           📐 DXFダウンロード（CAD用）
         </button>
       </div>
 
       <p style={{ fontSize: 11, color: '#7F8C8D', marginTop: 8 }}>
-        ※ DXFはAutoCAD・JW-CAD・Vectorworks等で開けます。レイヤー：建物外形 / 足場外周 / 支柱 / 壁つなぎ / 寸法
+        ※ PDFはブラウザの印刷ダイアログで「PDFとして保存」を選択してください（Mac標準機能）。<br />
+        ※ DXFはAutoCAD・JW-CAD等で開けます。
       </p>
     </div>
   );

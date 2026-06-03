@@ -260,7 +260,125 @@ export default function Home() {
     setLayout(buildScaffoldLayout({ vertices, ...p.inputs }));
   };
 
-  const handleExport = async () => {
+  // PDF出力（ブラウザの印刷→PDF保存）
+  const handlePdfExport = () => {
+    if (!result) return;
+    const master = getMaster();
+
+    // 明細行を生成
+    type Row = { name: string; qty: number; unit: string; unitPrice: number; amount: number };
+    const rows: Row[] = [];
+    if (layout) {
+      const items: [string, number][] = [
+        ['支柱（ジャッキ付）', layout.takeoff.jackPost], ['支柱（中間1800）', layout.takeoff.midPost],
+        ['布板（踏板600幅）', layout.takeoff.board],     ['手すり（横架材）', layout.takeoff.handrail],
+        ['筋交い', layout.takeoff.brace],                ['壁つなぎ', layout.takeoff.wallTieCount],
+        ['ジャッキベース', layout.takeoff.jackBase],     ['メッシュシート', layout.takeoff.mesh],
+        ['アンカー', layout.takeoff.anchor],
+      ];
+      items.filter(([, q]) => q > 0).forEach(([name, qty]) => {
+        const m = master[name]; if (!m) return;
+        rows.push({ name, qty, unit: m.unit, unitPrice: m.unitPrice, amount: qty * m.unitPrice });
+      });
+    } else {
+      result.items.forEach(it => rows.push(it));
+    }
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    const s = result.summary;
+
+    const rowsHtml = rows.map((r, i) => `
+      <tr>
+        <td class="c">${i + 1}</td>
+        <td>${r.name}</td>
+        <td class="r">${r.qty.toLocaleString()}</td>
+        <td class="c">${r.unit}</td>
+        <td class="r">¥${r.unitPrice.toLocaleString()}</td>
+        <td class="r">¥${r.amount.toLocaleString()}</td>
+      </tr>`).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>足場数量見積書 - ${result.projectName}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', sans-serif; font-size: 11pt; color: #222; padding: 15mm 15mm 10mm; }
+  h1 { font-size: 18pt; text-align: center; color: #1B4F8A; border-bottom: 2.5pt solid #1B4F8A; padding-bottom: 6pt; margin-bottom: 14pt; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 4pt 20pt; margin-bottom: 14pt; font-size: 10pt; }
+  .meta-item { display: flex; gap: 6pt; }
+  .meta-label { color: #5D6D7E; width: 70pt; flex-shrink: 0; }
+  .summary { background: #EBF5FB; border: 1pt solid #AED6F1; border-radius: 4pt; padding: 8pt 12pt; margin-bottom: 14pt; display: flex; justify-content: space-between; align-items: center; }
+  .summary-label { color: #1A5276; font-size: 10pt; }
+  .summary-amount { font-size: 18pt; font-weight: bold; color: #E67E22; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  thead tr { background: #1B4F8A; color: #fff; }
+  th { padding: 6pt 8pt; text-align: left; font-weight: 600; }
+  td { padding: 5pt 8pt; border-bottom: 0.5pt solid #ddd; }
+  tr:nth-child(even) td { background: #F7FBFF; }
+  .r { text-align: right; }
+  .c { text-align: center; }
+  .total-row td { border-top: 1.5pt solid #1B4F8A; font-weight: bold; background: #FEF9E7 !important; }
+  .footer { margin-top: 12pt; font-size: 8.5pt; color: #7F8C8D; border-top: 0.5pt solid #ddd; padding-top: 6pt; display:flex; justify-content:space-between; }
+  .plan-info { display:grid; grid-template-columns:repeat(3,1fr); gap:6pt; margin-bottom:14pt; }
+  .plan-cell { background:#F2F4F6; border-radius:3pt; padding:5pt 8pt; }
+  .plan-cell-label { font-size:8.5pt; color:#7F8C8D; }
+  .plan-cell-val { font-size:11pt; font-weight:700; color:#1B4F8A; }
+  @media print {
+    body { padding: 10mm; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+<h1>足場数量見積書</h1>
+<div class="meta">
+  <div class="meta-item"><span class="meta-label">物件名</span><strong>${result.projectName}</strong></div>
+  <div class="meta-item"><span class="meta-label">建物用途</span>${result.inputs.buildingType}</div>
+  <div class="meta-item"><span class="meta-label">足場種別</span>${result.inputs.scaffoldType}</div>
+  <div class="meta-item"><span class="meta-label">階数</span>${result.inputs.floors}階</div>
+  <div class="meta-item"><span class="meta-label">標準階高</span>${result.inputs.floorHeight}m</div>
+  <div class="meta-item"><span class="meta-label">離隔距離</span>${result.inputs.clearance}m</div>
+  <div class="meta-item"><span class="meta-label">養生シート</span>${result.inputs.meshOpt}</div>
+  <div class="meta-item"><span class="meta-label">作成日</span>${new Date().toLocaleDateString('ja-JP')}</div>
+</div>
+<div class="plan-info">
+  <div class="plan-cell"><div class="plan-cell-label">建物外周</div><div class="plan-cell-val">${s.perimeter} m</div></div>
+  <div class="plan-cell"><div class="plan-cell-label">足場外周</div><div class="plan-cell-val">${s.scaffoldPerimeter} m</div></div>
+  <div class="plan-cell"><div class="plan-cell-label">足場総高さ</div><div class="plan-cell-val">${s.totalHeight} m（${s.segments}段）</div></div>
+  <div class="plan-cell"><div class="plan-cell-label">足場外面積</div><div class="plan-cell-val">${s.scaffoldFaceArea} m²</div></div>
+  <div class="plan-cell"><div class="plan-cell-label">推定総重量</div><div class="plan-cell-val">${s.totalWeight} kg</div></div>
+</div>
+<div class="summary">
+  <span class="summary-label">概算金額（税抜）</span>
+  <span class="summary-amount">¥${total.toLocaleString()}</span>
+</div>
+<table>
+  <thead><tr><th class="c" style="width:32pt">No.</th><th>部材名</th><th class="r" style="width:50pt">数量</th><th class="c" style="width:32pt">単位</th><th class="r" style="width:60pt">単価</th><th class="r" style="width:70pt">金額</th></tr></thead>
+  <tbody>
+    ${rowsHtml}
+    <tr class="total-row">
+      <td colspan="5" class="r">合　計</td>
+      <td class="r">¥${total.toLocaleString()}</td>
+    </tr>
+  </tbody>
+</table>
+<div class="footer">
+  <span>※ 単価は参考値です。実際の発注時には最新の単価マスタを参照してください。</span>
+  <span>${result.projectName}　${new Date().toLocaleDateString('ja-JP')}</span>
+</div>
+<script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) { alert('ポップアップをブロックしています。ブラウザの設定で許可してください。'); return; }
+    win.document.write(html);
+    win.document.close();
+  };
+
+  // Excel出力（Windows / Office利用者向け）
+  const handleExcelExport = async () => {
     if (!result) return;
     const XLSX = (await import('xlsx')).default;
     const wb   = XLSX.utils.book_new();
@@ -501,7 +619,7 @@ export default function Home() {
 
           {tab === 'result' && (
             result
-              ? <ResultTable result={result} onExport={handleExport} layout={layout} />
+              ? <ResultTable result={result} onPdfExport={handlePdfExport} onExcelExport={handleExcelExport} layout={layout} />
               : <div style={{ textAlign:'center', padding:'80px 20px', color:'#95A5A6' }}>
                   <div style={{ fontSize:52, marginBottom:12 }}>📊</div>
                   <div style={{ fontSize:15, marginBottom:8 }}>左のフォームに入力して「計算する」を押してください</div>

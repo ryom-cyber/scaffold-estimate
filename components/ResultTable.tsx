@@ -5,11 +5,12 @@ import { getMaster } from '@/lib/storage';
 
 interface Props {
   result: CalcResult;
-  onExport: () => void;
+  onPdfExport: () => void;
+  onExcelExport: () => void;
   layout?: ScaffoldLayout | null;
 }
 
-export default function ResultTable({ result, onExport, layout }: Props) {
+export default function ResultTable({ result, onPdfExport, onExcelExport, layout }: Props) {
   const { summary: s } = result;
 
   // 仮設図ベースの拾い出し
@@ -87,12 +88,16 @@ export default function ResultTable({ result, onExport, layout }: Props) {
         </tbody>
       </table>
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-        <button className="btn btn-primary" onClick={onExport}>📥 Excelダウンロード</button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" onClick={onPdfExport}>📄 PDFで保存</button>
+        <button className="btn btn-secondary" onClick={onExcelExport} title="Windows / Microsoft Office をお使いの方向け">
+          📊 Excelダウンロード
+        </button>
       </div>
 
       <p style={{ fontSize: 12, color: '#7F8C8D', marginTop: 12 }}>
-        ※ 単価は参考値です。実際の発注時には最新の単価マスタを参照してください。
+        ※ 単価は参考値です。実際の発注時には最新の単価マスタを参照してください。<br />
+        ※ PDFはブラウザの印刷ダイアログで「PDFとして保存」を選択してください。
       </p>
     </>
   );
