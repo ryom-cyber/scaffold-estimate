@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ResultTable from '@/components/ResultTable';
 import ScaffoldPlan from '@/components/ScaffoldPlan';
 import SavedList from '@/components/SavedList';
@@ -62,6 +62,7 @@ export default function Home() {
   const [layout, setLayout]   = useState<ScaffoldLayout | null>(null);
   const [tab, setTab]         = useState<'result' | 'plan'>('result');
   const [projects, setProjects] = useState<CalcResult[]>([]);
+  const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setProjects(listProjects()); }, []);
 
@@ -235,6 +236,8 @@ export default function Home() {
     const vertices = sidestoVertices(sides);
     const bp: BuildingPolygon = { vertices, floors, floorHeight, clearance, meshOpt, projectName: inputs.projectName, buildingType };
     setLayout(buildScaffoldLayout(bp));
+    // 計算後に結果欄へスクロール（ナロー画面対応）
+    setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   };
 
   const handleSave = () => {
@@ -428,8 +431,8 @@ export default function Home() {
   return (
     <>
       <style>{`
-        .layout-grid { display:grid; grid-template-columns:420px 1fr; gap:24px; }
-        @media (max-width:960px) { .layout-grid { grid-template-columns:1fr; } }
+        .layout-grid { display:grid; grid-template-columns:400px 1fr; gap:20px; }
+        @media (max-width:860px) { .layout-grid { grid-template-columns:1fr; } }
         .form-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
         .form-row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px; }
         .field-label { font-size:12px; font-weight:600; color:#5D6D7E; display:flex; align-items:center; gap:4px; margin-bottom:4px; }
@@ -611,7 +614,7 @@ export default function Home() {
         </div>
 
         {/* ===== 右カラム ===== */}
-        <div className="card">
+        <div className="card" ref={resultRef}>
           <div className="tabs">
             <button className={`tab-btn ${tab === 'result' ? 'active' : ''}`} onClick={() => setTab('result')}>📊 数量・拾い出し</button>
             <button className={`tab-btn ${tab === 'plan' ? 'active' : ''}`} onClick={() => setTab('plan')}>📐 仮設計画図</button>
