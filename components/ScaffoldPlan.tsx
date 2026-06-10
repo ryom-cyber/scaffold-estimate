@@ -177,8 +177,7 @@ ${elevHtml}
       </div>
 
       {/* ── 平面図 ── */}
-      {view === 'plan' && (
-        <div style={{ background: '#FAFBFC', border: '1px solid #E5E8E8', borderRadius: 8, padding: 12, marginBottom: 12, overflowX: 'auto' }}>
+      <div style={{ background: '#FAFBFC', border: '1px solid #E5E8E8', borderRadius: 8, padding: 12, marginBottom: 12, overflowX: 'auto', display: view === 'plan' ? 'block' : 'none' }}>
           <svg className="scaffold-plan-svg" viewBox={`0 0 ${svgW} ${svgH}`} style={{ maxWidth: '100%', height: 'auto', display: 'block' }}>
             <defs>
               <marker id="arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
@@ -222,14 +221,11 @@ ${elevHtml}
             </text>
           </svg>
         </div>
-      )}
 
-      {/* ── 立面図 ── */}
-      {view === 'elevation' && (
-        <div style={{ background: '#FAFBFC', border: '1px solid #E5E8E8', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-          <ElevationView layout={layout} />
-        </div>
-      )}
+      {/* ── 立面図 ── 常にDOMに保持（PDF出力のため）、表示だけ切り替え */}
+      <div style={{ background: '#FAFBFC', border: '1px solid #E5E8E8', borderRadius: 8, padding: 12, marginBottom: 12, display: view === 'elevation' ? 'block' : 'none' }}>
+        <ElevationView layout={layout} />
+      </div>
 
       {/* サマリー */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
